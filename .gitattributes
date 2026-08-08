@@ -1,0 +1,17 @@
+# Il progetto si sviluppa su Windows ma gira su Linux: gli script di deploy/ e
+# l'unit systemd devono restare LF, altrimenti sul VPS lo shebang diventa
+# "#!/usr/bin/env bash\r" e bash non trova l'interprete.
+* text=auto eol=lf
+
+# I file PowerShell restano CRLF: sono gli unici a girare solo su Windows.
+*.ps1 text eol=crlf
+
+*.sh      text eol=lf
+*.service text eol=lf
+
+# Binari: mai convertire.
+*.db     binary
+*.tar.gz binary
+*.png    binary
+*.jpg    binary
+*.ico    binary

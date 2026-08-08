@@ -1,0 +1,21 @@
+node_modules/
+dist/
+.env
+*.log
+
+# Package di deploy per il VPS (vedi deploy/DEPLOY.md): contiene il .env
+# con il token, non va versionato per nessun motivo. Glob e non nome esatto:
+# un package con un nome diverso resta comunque escluso.
+*-deploy.tar.gz
+
+# SQLite temporaneo (vedi prisma/schema.prisma): dati locali, non versionati.
+# Le migration in prisma/migrations/ invece SI vanno committate.
+*.db
+*.db-journal
+# File collaterali di SQLite in modalita' WAL.
+*.db-wal
+*.db-shm
+
+# Impostazioni locali di Claude Code: allowlist di permessi con path di questa
+# macchina, non configurazione del progetto.
+.claude/settings.local.json

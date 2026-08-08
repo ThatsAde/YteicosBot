@@ -1,0 +1,44 @@
+[Unit]
+Description=Yteicos Discord Bot
+Documentation=file:///opt/yteicos-bot/deploy/DEPLOY.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=yteicos
+Group=yteicos
+WorkingDirectory=/opt/yteicos-bot
+
+# dotenv/config (src/config/index.ts) legge .env dalla WorkingDirectory:
+# non serve EnvironmentFile, il .env viene caricato dal processo stesso.
+Environment=NODE_ENV=production
+ExecStart=/usr/bin/node dist/index.js
+
+Restart=always
+RestartSec=5
+# src/index.ts gestisce SIGINT (client.destroy + exit pulito), non SIGTERM:
+# chiediamo a systemd di usare quello per uno shutdown pulito.
+KillSignal=SIGINT
+TimeoutStopSec=20
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=yteicos-bot
+
+# --- Hardening ---
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+# L'unica cartella in cui il bot scrive e' prisma/ (file SQLite + journal WAL).
+ReadWritePaths=/opt/yteicos-bot/prisma
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+RestrictRealtime=true
+LockPersonality=true
+
+[Install]
+WantedBy=multi-user.target

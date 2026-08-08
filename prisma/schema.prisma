@@ -1,0 +1,219 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  // SQLite temporaneo: nessun server da avviare, un solo file .db.
+  // Per tornare a Postgres in produzione basta cambiare provider e DATABASE_URL
+  // (vedi nota su proofUrls sotto per l'unica differenza di schema che comporta).
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// ---------------------------------------------------------------------------
+// Enum allineati (per valore stringa) a src/services/auth-state.ts e
+// src/domain/ticket-state.ts. Non sono lo stesso tipo TS: la mappatura fra i
+// due e' esplicita nei service (vedi CATEGORY_TO_PRISMA, toPrismaTicketState, ...).
+// ---------------------------------------------------------------------------
+
+enum AuthState {
+  GUEST
+  PENDING
+  VERIFIED
+  SUSPENDED
+}
+
+enum Tier {
+  NONE
+  CUSTOMER
+  PREMIUM
+}
+
+enum TicketType {
+  VERIFICATION
+  COMMISSION
+  SUPPORT
+  PRIORITY_SUPPORT
+  REPORT
+}
+
+enum TicketState {
+  OPEN
+  CLAIMED
+  AWAITING_USER
+  AWAITING_STAFF
+  RESOLVED
+  CLOSED
+  ARCHIVED
+  REJECTED
+}
+
+enum VerificationPlatform {
+  MCMODELS
+  BUILTBYBIT
+  POLYMART
+  WEBSITE
+  OTHER
+}
+
+enum VerificationOutcome {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+enum LogCategory {
+  AUTH
+  TICKET
+  MODERATION
+  PURCHASE
+  SYSTEM
+}
+
+enum LogLevel {
+  DEBUG
+  INFO
+  WARN
+  ERROR
+}
+
+model User {
+  id        String    @id @default(cuid())
+  discordId String    @unique
+  authState AuthState @default(GUEST)
+  tier      Tier      @default(NONE)
+
+  verifiedAt  DateTime?
+  suspendedAt DateTime?
+
+  linkedAccounts       LinkedAccount[]
+  authoredTickets      Ticket[]              @relation("TicketAuthor")
+  claimedTickets       Ticket[]              @relation("TicketClaimedBy")
+  ticketParticipations TicketParticipant[]
+  verificationRequests VerificationRequest[]
+  auditLogs            AuditLog[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([authState])
+  @@index([tier])
+}
+
+// Collegamento a MCModels / BuiltByBit / Polymart (task 2 della verifica: OAuth futuro).
+model LinkedAccount {
+  id               String               @id @default(cuid())
+  user             User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId           String
+  platform         VerificationPlatform
+  externalUsername String
+  linkedAt         DateTime             @default(now())
+
+  @@unique([userId, platform])
+  @@index([platform, externalUsername])
+}
+
+// Contatore atomico per numero ticket, SEPARATO per tipo (verify-0001, support-0001, ...).
+model TicketCounter {
+  type  TicketType @id
+  value Int        @default(0)
+}
+
+model Ticket {
+  id     String     @id @default(cuid())
+  number Int
+  type   TicketType
+
+  state    TicketState @default(OPEN)
+  priority Int         @default(0)
+  subject  String?
+
+  channelId String @unique
+
+  author   User   @relation("TicketAuthor", fields: [authorId], references: [id])
+  authorId String
+
+  claimedBy   User?   @relation("TicketClaimedBy", fields: [claimedById], references: [id])
+  claimedById String?
+
+  closeReason   String?
+  transcriptUrl String?
+
+  openedAt   DateTime  @default(now())
+  claimedAt  DateTime?
+  resolvedAt DateTime?
+  closedAt   DateTime?
+  archivedAt DateTime?
+
+  // Bump su ogni messaggio nel canale (vedi src/events/messageCreate.ts):
+  // alimenta l'auto-close per inattivita'.
+  lastActivityAt     DateTime  @default(now())
+  inactivityWarnedAt DateTime?
+
+  participants         TicketParticipant[]
+  verificationRequest  VerificationRequest?
+  auditLogs             AuditLog[]
+
+  @@unique([type, number])
+  @@index([authorId, type, state])
+  @@index([state])
+  @@index([lastActivityAt])
+}
+
+model TicketParticipant {
+  id       String   @id @default(cuid())
+  ticket   Ticket   @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  ticketId String
+  user     User     @relation(fields: [userId], references: [id])
+  userId   String
+  addedAt  DateTime @default(now())
+
+  @@unique([ticketId, userId])
+}
+
+// Dati dalla modal di apertura ticket VERIFICATION + esito della review staff.
+model VerificationRequest {
+  id       String @id @default(cuid())
+  ticket   Ticket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  ticketId String @unique
+  user     User   @relation(fields: [userId], references: [id])
+  userId   String
+
+  platform         VerificationPlatform
+  platformUsername String
+  product          String
+  purchaseDate     DateTime?
+  // SQLite non supporta le liste di scalari (String[]): Json e' l'equivalente,
+  // letto/scritto come array in TicketService (niente piu' operazione atomica
+  // "push" nativa di Postgres, vedi submitProof in ticket-service.ts).
+  proofUrls        Json     @default("[]")
+
+  outcome      VerificationOutcome @default(PENDING)
+  reviewedBy   String?
+  reviewReason String?
+
+  createdAt  DateTime  @default(now())
+  reviewedAt DateTime?
+}
+
+// Audit trail: ogni LogEvent emesso da LoggerService finisce qui, oltre che su Discord.
+model AuditLog {
+  id        String      @id @default(cuid())
+  category  LogCategory
+  level     LogLevel
+  eventType String
+  message   String
+  payload   Json
+
+  user   User?   @relation(fields: [userId], references: [id])
+  userId String?
+
+  ticket   Ticket? @relation(fields: [ticketId], references: [id])
+  ticketId String?
+
+  createdAt DateTime @default(now())
+
+  @@index([category, createdAt])
+  @@index([userId, createdAt])
+  @@index([ticketId])
+}
